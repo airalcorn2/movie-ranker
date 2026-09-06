@@ -1,0 +1,8 @@
+__pycache__/
+*.pyc
+movie_ranker.db
+data/*.csv
+data/*.zip
+.env
+.vscode
+letterboxd-ranker-plan.md

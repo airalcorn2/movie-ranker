@@ -1,0 +1,592 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>Letterboxd Ranker</title>
+<style>
+  :root {
+    color-scheme: light dark;
+    --bg: #14161a;
+    --card: #1e2126;
+    --card-hover: #262a31;
+    --text: #e8e8ea;
+    --muted: #9a9fa6;
+    --accent: #ff8000; /* Letterboxd orange. */
+    --accent2: #00e054; /* Letterboxd green. */
+    --border: #33373f;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+    min-height: 100vh;
+  }
+  header {
+    padding: 1rem 1.5rem;
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+  }
+  header h1 { font-size: 1.1rem; margin: 0; font-weight: 600; }
+  header h1 span { color: var(--accent); }
+  #stats { color: var(--muted); font-size: 0.85rem; }
+  #stats b { color: var(--text); }
+  main {
+    max-width: 1000px;
+    margin: 0 auto;
+    padding: 2rem 1.5rem 4rem;
+  }
+  #vs-row {
+    display: grid;
+    grid-template-columns: 1fr auto 1fr;
+    gap: 1.5rem;
+    align-items: stretch;
+  }
+  .card {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 1.25rem;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    text-align: center;
+    cursor: pointer;
+    transition: background 0.12s, transform 0.12s, border-color 0.12s;
+  }
+  .card:hover { background: var(--card-hover); border-color: var(--accent); }
+  .card:active { transform: scale(0.98); }
+  .card img {
+    width: 100%;
+    max-width: 260px;
+    border-radius: 6px;
+    margin-bottom: 0.9rem;
+    background: #000;
+  }
+  .card .placeholder {
+    width: 100%;
+    max-width: 260px;
+    aspect-ratio: 2 / 3;
+    border-radius: 6px;
+    margin-bottom: 0.9rem;
+    background: linear-gradient(135deg, #2a2e35, #1a1c20);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--muted);
+    font-size: 0.8rem;
+    padding: 1rem;
+  }
+  .card h2 { font-size: 1.05rem; margin: 0 0 0.25rem; }
+  .card .year { color: var(--muted); font-size: 0.85rem; }
+  .card .rating { color: var(--accent); font-size: 0.85rem; margin-top: 0.4rem; }
+  .card .key-hint {
+    margin-top: 0.75rem;
+    font-size: 0.7rem;
+    color: var(--muted);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 2px 6px;
+  }
+  #vs-center {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 0.75rem;
+    color: var(--muted);
+  }
+  #skip-btn {
+    background: none;
+    border: 1px solid var(--border);
+    color: var(--muted);
+    border-radius: 6px;
+    padding: 0.5rem 0.9rem;
+    cursor: pointer;
+    font-size: 0.8rem;
+  }
+  #skip-btn:hover { border-color: var(--accent); color: var(--text); }
+  #loading { text-align: center; color: var(--muted); padding: 3rem 0; }
+  section#ranking { margin-top: 3rem; }
+  section#ranking h3 {
+    font-size: 0.95rem;
+    color: var(--muted);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    margin-bottom: 0.75rem;
+  }
+  #top20 { list-style: none; margin: 0; padding: 0; }
+  #top20 li {
+    display: flex;
+    justify-content: space-between;
+    padding: 0.45rem 0.6rem;
+    border-bottom: 1px solid var(--border);
+    font-size: 0.9rem;
+  }
+  #top20 li .n { color: var(--muted); width: 1.8rem; display: inline-block; }
+  #top20 li .sc { color: var(--muted); font-variant-numeric: tabular-nums; }
+  #export-link {
+    display: inline-block;
+    margin-top: 1rem;
+    color: var(--accent2);
+    text-decoration: none;
+    font-size: 0.85rem;
+  }
+  #export-link:hover { text-decoration: underline; }
+  #banner {
+    display: none;
+    background: #3a2a1a;
+    border: 1px solid var(--accent);
+    color: var(--text);
+    padding: 0.75rem 1rem;
+    border-radius: 8px;
+    margin-bottom: 1.5rem;
+    font-size: 0.85rem;
+  }
+  section#history { margin-top: 3rem; }
+  section#history h3 {
+    font-size: 0.95rem;
+    color: var(--muted);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    margin-bottom: 0.75rem;
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+  }
+  #history-toggle {
+    background: none;
+    border: 1px solid var(--border);
+    color: var(--muted);
+    border-radius: 4px;
+    padding: 1px 8px;
+    font-size: 0.75rem;
+    text-transform: none;
+    letter-spacing: normal;
+    cursor: pointer;
+  }
+  #history-toggle:hover { border-color: var(--accent); color: var(--text); }
+  #history-count { color: var(--muted); font-size: 0.75rem; text-transform: none; letter-spacing: normal; margin-left: auto; }
+  .history-controls {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    margin-bottom: 0.75rem;
+  }
+  #history-filter-input {
+    background: var(--card);
+    border: 1px solid var(--border);
+    color: var(--text);
+    border-radius: 6px;
+    padding: 0.4rem 0.6rem;
+    font-size: 0.85rem;
+    min-width: 14rem;
+  }
+  #history-filter-input:focus { outline: none; border-color: var(--accent); }
+  #history-filter-clear {
+    background: none;
+    border: 1px solid var(--border);
+    color: var(--muted);
+    border-radius: 6px;
+    padding: 0.4rem 0.7rem;
+    font-size: 0.8rem;
+    cursor: pointer;
+  }
+  #history-filter-clear:hover { border-color: var(--accent); color: var(--text); }
+  #history-list { list-style: none; margin: 0; padding: 0; }
+  .history-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 1rem;
+    padding: 0.5rem 0.6rem;
+    border-bottom: 1px solid var(--border);
+    font-size: 0.85rem;
+    flex-wrap: wrap;
+  }
+  .history-label { color: var(--text); }
+  .history-timestamp { color: var(--muted); font-size: 0.75rem; margin-left: 0.5rem; }
+  .history-actions { display: flex; gap: 0.4rem; flex-wrap: wrap; }
+  .hist-btn {
+    background: none;
+    border: 1px solid var(--border);
+    color: var(--muted);
+    border-radius: 4px;
+    padding: 3px 8px;
+    font-size: 0.75rem;
+    cursor: pointer;
+    max-width: 14rem;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .hist-btn:hover { border-color: var(--accent); color: var(--text); }
+  .hist-btn.active { border-color: var(--accent2); color: var(--accent2); }
+  .hist-btn.danger { color: #ff5c5c; }
+  .hist-btn.danger:hover { border-color: #ff5c5c; }
+  #history-load-more {
+    display: block;
+    margin: 0.75rem auto 0;
+    background: none;
+    border: 1px solid var(--border);
+    color: var(--muted);
+    border-radius: 6px;
+    padding: 0.4rem 1rem;
+    font-size: 0.8rem;
+    cursor: pointer;
+  }
+  #history-load-more:hover { border-color: var(--accent); color: var(--text); }
+  #history-empty { color: var(--muted); font-size: 0.85rem; }
+</style>
+</head>
+<body>
+<header>
+  <h1><span>&#9670;</span> Letterboxd Ranker</h1>
+  <div id="stats">loading&hellip;</div>
+</header>
+<main>
+  <div id="banner"></div>
+  <div id="loading">Loading next pair&hellip;</div>
+  <div id="vs-row" style="display:none">
+    <div class="card" id="card-a">
+      <div class="placeholder" id="ph-a"></div>
+      <h2 id="title-a"></h2>
+      <div class="year" id="year-a"></div>
+      <div class="rating" id="rating-a"></div>
+      <div class="key-hint">&larr; left arrow</div>
+    </div>
+    <div id="vs-center">
+      <div>vs</div>
+      <button id="skip-btn">Can&rsquo;t decide (space)</button>
+    </div>
+    <div class="card" id="card-b">
+      <div class="placeholder" id="ph-b"></div>
+      <h2 id="title-b"></h2>
+      <div class="year" id="year-b"></div>
+      <div class="rating" id="rating-b"></div>
+      <div class="key-hint">right arrow &rarr;</div>
+    </div>
+  </div>
+
+  <section id="ranking">
+    <h3>Current top 20</h3>
+    <ol id="top20"></ol>
+    <a id="export-link" href="/export">&#8595; Export full ranking as CSV</a>
+  </section>
+
+  <section id="history">
+    <h3>
+      Comparison history <button id="history-toggle" type="button">show</button>
+      <span id="history-count"></span>
+    </h3>
+    <div id="history-body" hidden>
+      <div class="history-controls">
+        <input
+          id="history-filter-input"
+          type="text"
+          list="movie-datalist"
+          placeholder="Filter by movie&hellip; (e.g., after a rewatch)"
+          autocomplete="off"
+        />
+        <button id="history-filter-clear" type="button">Clear</button>
+      </div>
+      <datalist id="movie-datalist"></datalist>
+      <ol id="history-list"></ol>
+      <div id="history-empty" hidden>No comparisons found.</div>
+      <button id="history-load-more" type="button">Load more</button>
+    </div>
+  </section>
+</main>
+
+<script>
+let current = null; // The pair currently shown, or null if none has loaded yet.
+
+/** Star-rating text for a movie's `letterboxd_rating` (e.g. "★★★★ (4)"). */
+function fmtRating(r) {
+  return r == null ? "" : "★".repeat(Math.round(r)) + ` (${r})`;
+}
+
+/** Fill in one comparison card (prefix "a" or "b") from a MovieOut. */
+function renderCard(prefix, movie) {
+  document.getElementById(`title-${prefix}`).textContent = movie.title;
+  document.getElementById(`year-${prefix}`).textContent = movie.year ?? "";
+  document.getElementById(`rating-${prefix}`).textContent = fmtRating(movie.letterboxd_rating);
+  const ph = document.getElementById(`ph-${prefix}`);
+  const existingImg = document.querySelector(`#card-${prefix} img`);
+  if (existingImg) existingImg.remove();
+  if (movie.poster_url) {
+    ph.style.display = "none";
+    const img = document.createElement("img");
+    img.src = movie.poster_url;
+    img.alt = movie.title;
+    ph.insertAdjacentElement("beforebegin", img);
+  } else {
+    ph.style.display = "flex";
+    ph.textContent = movie.title;
+  }
+}
+
+/** Fetch the next pair to compare and render it into the vs-row. */
+async function loadNextPair() {
+  document.getElementById("loading").style.display = "block";
+  document.getElementById("vs-row").style.display = "none";
+  const banner = document.getElementById("banner");
+  try {
+    const res = await fetch("/next_pair");
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      banner.textContent = err.detail || "Could not load a pair.";
+      banner.style.display = "block";
+      document.getElementById("loading").style.display = "none";
+      return;
+    }
+    banner.style.display = "none";
+    current = await res.json();
+    renderCard("a", current.a);
+    renderCard("b", current.b);
+    document.getElementById("loading").style.display = "none";
+    document.getElementById("vs-row").style.display = "grid";
+  } catch (e) {
+    banner.textContent = "Network error loading next pair.";
+    banner.style.display = "block";
+    document.getElementById("loading").style.display = "none";
+  }
+}
+
+/** Submit a comparison result (winnerId null means skip) and advance. */
+async function submitChoice(winnerId) {
+  if (!current) return;
+  const { a, b } = current;
+  current = null; // Prevent double-submit.
+  await fetch("/compare", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ movie_a_id: a.id, movie_b_id: b.id, winner_id: winnerId }),
+  });
+  loadStatus();
+  loadNextPair();
+  refreshHistoryIfOpen(); // So a just-made comparison shows up immediately if the panel's open.
+}
+
+/** Refresh the header stats and top-20 ranking from /status. */
+async function loadStatus() {
+  try {
+    const res = await fetch("/status");
+    const s = await res.json();
+    const connNote = s.is_connected ? "" : ` &mdash; ${s.n_components} disconnected groups`;
+    const tauNote =
+      s.kendall_tau_vs_prev == null
+        ? ""
+        : ` &mdash; stability &tau;=${s.kendall_tau_vs_prev.toFixed(2)}`;
+    document.getElementById("stats").innerHTML =
+      `<b>${s.n_movies}</b> movies &middot; <b>${s.n_comparisons_decisive}</b> comparisons${connNote}${tauNote}`;
+
+    const list = document.getElementById("top20");
+    list.innerHTML = "";
+    s.top20.forEach((m, i) => {
+      const li = document.createElement("li");
+      li.innerHTML = `<span><span class="n">${i + 1}.</span>${m.title}${m.year ? ` (${m.year})` : ""}</span><span class="sc">${m.score}</span>`;
+      list.appendChild(li);
+    });
+  } catch (e) {
+    // Status is a nice-to-have; ignore failures here.
+  }
+}
+
+document.getElementById("card-a").addEventListener("click", () => current && submitChoice(current.a.id));
+document.getElementById("card-b").addEventListener("click", () => current && submitChoice(current.b.id));
+document.getElementById("skip-btn").addEventListener("click", () => current && submitChoice(null));
+
+document.addEventListener("keydown", (e) => {
+  if (!current) return;
+  if (e.key === "ArrowLeft") submitChoice(current.a.id);
+  else if (e.key === "ArrowRight") submitChoice(current.b.id);
+  else if (e.key === " ") { e.preventDefault(); submitChoice(null); }
+});
+
+// -- Comparison history (view / edit / delete past comparisons) -----------
+//
+// Pagination uses an id cursor (`before_id`), not OFFSET: OFFSET counts rows
+// from the current front of the ordering, so a page fetched after new
+// comparisons were inserted (which always sort to the front, being newest)
+// silently skips or duplicates rows. The whole list is also reloaded from
+// scratch on open and after every edit/delete/new comparison, rather than
+// patched in place, so it can never drift out of sync with the server.
+
+const HISTORY_PAGE_SIZE = 25;
+let historyCursor = null; // ID of the oldest comparison loaded so far.
+let historyHasMore = true;
+let historyMovieFilter = null; // Movie ID to restrict to, or null for all.
+let moviesLoaded = false;
+const movieLabelToId = new Map();
+
+/** Populate the movie-filter datalist and the label -> id lookup map. */
+async function loadMovieOptions() {
+  try {
+    const res = await fetch("/movies");
+    const data = await res.json();
+    const datalist = document.getElementById("movie-datalist");
+    datalist.innerHTML = "";
+    movieLabelToId.clear();
+    data.movies.forEach((m) => {
+      const label = m.year ? `${m.title} (${m.year})` : m.title;
+      movieLabelToId.set(label, m.id);
+      const opt = document.createElement("option");
+      opt.value = label;
+      datalist.appendChild(opt);
+    });
+  } catch (e) {
+    // The filter is a nice-to-have; ignore failures here.
+  }
+}
+
+/** A small styled button for a history row's winner/skip/delete actions. */
+function makeHistBtn(text, active, danger) {
+  const b = document.createElement("button");
+  b.type = "button";
+  b.textContent = text;
+  b.title = text;
+  b.className = "hist-btn" + (active ? " active" : "") + (danger ? " danger" : "");
+  return b;
+}
+
+/** Reassign (or clear, with null) one comparison's winner via PATCH. */
+async function patchComparisonWinner(id, winnerId) {
+  await fetch(`/comparisons/${id}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ winner_id: winnerId }),
+  });
+}
+
+/** Build one <li> for a ComparisonOut, wired up with its edit/delete actions. */
+function renderHistoryRow(c) {
+  const li = document.createElement("li");
+  li.className = "history-row";
+
+  const label = document.createElement("span");
+  label.className = "history-label";
+  const aLabel = c.movie_a.title + (c.movie_a.year ? ` (${c.movie_a.year})` : "");
+  const bLabel = c.movie_b.title + (c.movie_b.year ? ` (${c.movie_b.year})` : "");
+  label.textContent = `${aLabel} vs ${bLabel}`;
+  const ts = document.createElement("span");
+  ts.className = "history-timestamp";
+  ts.textContent = new Date(c.timestamp).toLocaleString();
+  label.appendChild(ts);
+
+  const actions = document.createElement("span");
+  actions.className = "history-actions";
+
+  const btnA = makeHistBtn(aLabel, c.winner_id === c.movie_a.id, false);
+  const btnB = makeHistBtn(bLabel, c.winner_id === c.movie_b.id, false);
+  const btnSkip = makeHistBtn("skip", c.winner_id === null, false);
+  const btnDelete = makeHistBtn("delete", false, true);
+
+  // Any edit re-fits the model, which can shuffle the whole ranking, so
+  // just reload the history list from scratch rather than patching this
+  // row in place -- simpler, and can't drift out of sync.
+  btnA.addEventListener("click", async () => {
+    await patchComparisonWinner(c.id, c.movie_a.id);
+    loadStatus();
+    resetAndLoadHistory();
+  });
+  btnB.addEventListener("click", async () => {
+    await patchComparisonWinner(c.id, c.movie_b.id);
+    loadStatus();
+    resetAndLoadHistory();
+  });
+  btnSkip.addEventListener("click", async () => {
+    await patchComparisonWinner(c.id, null);
+    loadStatus();
+    resetAndLoadHistory();
+  });
+  btnDelete.addEventListener("click", async () => {
+    await fetch(`/comparisons/${c.id}`, { method: "DELETE" });
+    loadStatus();
+    resetAndLoadHistory();
+  });
+
+  actions.append(btnA, btnB, btnSkip, btnDelete);
+  li.append(label, actions);
+  return li;
+}
+
+/** Query string for the next /comparisons page, given the current cursor/filter. */
+function historyQueryString() {
+  const params = new URLSearchParams({ limit: String(HISTORY_PAGE_SIZE) });
+  if (historyCursor !== null) params.set("before_id", historyCursor);
+  if (historyMovieFilter !== null) params.set("movie_id", historyMovieFilter);
+  return params.toString();
+}
+
+/** Fetch and append the next page of history rows, advancing the cursor. */
+async function loadHistoryPage() {
+  const res = await fetch(`/comparisons?${historyQueryString()}`);
+  if (!res.ok) return;
+  const data = await res.json();
+  const list = document.getElementById("history-list");
+  data.comparisons.forEach((c) => {
+    list.appendChild(renderHistoryRow(c));
+    historyCursor = c.id; // Results are newest-first, so the last one seen is the oldest so far.
+  });
+  historyHasMore = data.comparisons.length === HISTORY_PAGE_SIZE;
+  document.getElementById("history-empty").hidden = list.children.length > 0;
+  document.getElementById("history-load-more").hidden = !historyHasMore;
+  document.getElementById("history-count").textContent =
+    data.total === 0 ? "" : `${list.children.length} of ${data.total} shown`;
+}
+
+/** Clear the history list and reload its first page from scratch. */
+async function resetAndLoadHistory() {
+  historyCursor = null;
+  historyHasMore = true;
+  document.getElementById("history-list").innerHTML = "";
+  await loadHistoryPage();
+}
+
+/** Reload the history list, but only if the panel is currently visible. */
+function refreshHistoryIfOpen() {
+  if (!document.getElementById("history-body").hidden) resetAndLoadHistory();
+}
+
+document.getElementById("history-toggle").addEventListener("click", async () => {
+  const body = document.getElementById("history-body");
+  const toggle = document.getElementById("history-toggle");
+  body.hidden = !body.hidden;
+  toggle.textContent = body.hidden ? "show" : "hide";
+  if (!body.hidden) {
+    if (!moviesLoaded) {
+      moviesLoaded = true;
+      await loadMovieOptions();
+    }
+    await resetAndLoadHistory(); // Always fresh -- comparisons made elsewhere may not be reflected.
+  }
+});
+
+document.getElementById("history-load-more").addEventListener("click", loadHistoryPage);
+
+const historyFilterInput = document.getElementById("history-filter-input");
+historyFilterInput.addEventListener("input", () => {
+  const label = historyFilterInput.value.trim();
+  const id = movieLabelToId.has(label) ? movieLabelToId.get(label) : null;
+  if (id === historyMovieFilter) return; // Only reload on an actual filter change.
+  historyMovieFilter = id;
+  resetAndLoadHistory();
+});
+document.getElementById("history-filter-clear").addEventListener("click", () => {
+  historyFilterInput.value = "";
+  if (historyMovieFilter === null) return;
+  historyMovieFilter = null;
+  resetAndLoadHistory();
+});
+
+loadStatus();
+loadNextPair();
+</script>
+</body>
+</html>
