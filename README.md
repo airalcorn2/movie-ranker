@@ -10,11 +10,13 @@ Rank your Letterboxd diary/ratings export via pairwise comparisons + a [Bradley-
 2. `app.py` (FastAPI) serves a comparison UI at `/`: two movies, click the one you prefer (or skip).
 3. Each comparison is stored. Fitting is manual: click "Refit now" (top right) whenever you want the ranking to reflect what you've compared so far.
 4. `/next_pair` picks the next pair to show you, in priority order:
-   - if you've locked a movie (see below), pair it against whichever opponent is most uncertain, ignoring everything else until you unlock it;
+   - if you've locked a movie or a rating tier (see below), pick from there and ignore everything else until you unlock it;
    - otherwise, bridge disconnected parts of the comparison graph first, so the ranking stays globally meaningful;
    - early on, sample movies with the same star rating (cross-tier order is already predictable from the rating, so same-tier pairs are where a comparison is actually uncertain);
    - once a model exists, sample the pair whose predicted win probability is closest to 50/50 (max information), weighted toward under-compared movies.
    Just rewatched something and want its ranking to converge fast? Type its title into the "🔒 Lock a movie" box in the header — every pair from then on will include it, chosen by uncertainty, until you hit "Unlock".
+   Want to sort out one whole star tier instead (e.g., settle the order of everything you rated 4 stars) — use the "🔒★ Lock a rating" dropdown next to it; every pair is then drawn from that tier alone, most-uncertain first.
+   The two locks are mutually exclusive: picking one clears the other.
 5. Movies without a rating start at the mean.
    Click "Seed from ratings" to additionally insert one *permanent* comparison for every pair of differently-rated movies (higher rating wins) — this is a real, stored comparison (`source: "rating"`), weighted identically to one of your own clicks, not a temporary nudge that fades away.
    It never touches same-rating pairs, so within-tier order (where the real uncertainty is) is always left for your own comparisons.
@@ -111,5 +113,5 @@ Everything else works the same.
 - `ingest.py` — CSV export → SQLite; the CLI entry point, and the code `app.py`'s `/sync` route calls into
 - `model.py` — Bradley-Terry fitting (via `choix`) + active-learning pair selection
 - `posters.py` — optional TMDB poster lookup
-- `app.py` — FastAPI server: `/`, `/status`, `/next_pair` (optionally `?locked_movie_id=`), `/compare`, `/comparisons` (list/edit/delete, filterable by movie and/or source), `/movies`, `/sync`, `/refit`, `/seed_rating_comparisons`, `/export`
+- `app.py` — FastAPI server: `/`, `/status`, `/next_pair` (optionally `?locked_movie_id=` or `?locked_rating=`), `/compare`, `/comparisons` (list/edit/delete, filterable by movie and/or source), `/movies`, `/sync`, `/refit`, `/seed_rating_comparisons`, `/export`
 - `static/index.html` — the comparison UI (plain HTML/JS, no build step)

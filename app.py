@@ -253,15 +253,26 @@ def next_pair(
         description="If set, every pair returned includes this movie, "
         "paired against whichever opponent is most uncertain.",
     ),
+    locked_rating: float | None = Query(
+        default=None,
+        description="If set (and locked_movie_id isn't), every pair "
+        "returned is drawn from movies rated this many stars.",
+    ),
 ) -> PairOut:
     """The next pair of movies to compare, chosen by active learning."""
+    if locked_movie_id is not None and locked_rating is not None:
+        raise HTTPException(
+            status_code=400, detail="cannot set both locked_movie_id and locked_rating"
+        )
     conn = get_conn()
     try:
         if locked_movie_id is not None and model.get_movie(conn, locked_movie_id) is None:
             raise HTTPException(
                 status_code=404, detail=f"movie id {locked_movie_id} not found"
             )
-        selection = model.select_next_pair(conn, locked_id=locked_movie_id)
+        selection = model.select_next_pair(
+            conn, locked_id=locked_movie_id, locked_rating=locked_rating
+        )
         if selection is None:
             raise HTTPException(
                 status_code=400,

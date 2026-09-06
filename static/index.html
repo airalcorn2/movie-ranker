@@ -80,6 +80,14 @@
     width: 11rem;
   }
   #lock-input:focus { outline: none; border-color: var(--accent); }
+  #lock-rating-select {
+    background: var(--card);
+    border: 1px solid var(--border);
+    color: var(--text);
+    border-radius: 6px;
+    padding: 0.35rem 0.5rem;
+    font-size: 0.8rem;
+  }
   #lock-active {
     display: flex;
     align-items: center;
@@ -336,6 +344,19 @@
       placeholder="&#128274; Lock a movie&hellip;"
       autocomplete="off"
     />
+    <select id="lock-rating-select">
+      <option value="">&#128274;&#9733; Lock a rating&hellip;</option>
+      <option value="5">&#9733;&#9733;&#9733;&#9733;&#9733; (5)</option>
+      <option value="4.5">&#9733;&#9733;&#9733;&#9733;&frac12; (4.5)</option>
+      <option value="4">&#9733;&#9733;&#9733;&#9733; (4)</option>
+      <option value="3.5">&#9733;&#9733;&#9733;&frac12; (3.5)</option>
+      <option value="3">&#9733;&#9733;&#9733; (3)</option>
+      <option value="2.5">&#9733;&#9733;&frac12; (2.5)</option>
+      <option value="2">&#9733;&#9733; (2)</option>
+      <option value="1.5">&#9733;&frac12; (1.5)</option>
+      <option value="1">&#9733; (1)</option>
+      <option value="0.5">&frac12; (0.5)</option>
+    </select>
     <div id="lock-active" hidden>
       &#128274; <span id="lock-title"></span>
       <button id="unlock-btn" type="button">Unlock</button>
@@ -407,6 +428,7 @@
 <script>
 let current = null; // The pair currently shown, or null if none has loaded yet.
 let lockedMovieId = null; // Movie id to keep pairing against everything else, or null.
+let lockedRating = null; // Star rating to restrict pairs to, or null. Mutually exclusive with lockedMovieId.
 
 /** Star-rating text for a movie's `letterboxd_rating` (e.g. "★★★★ (4)"). */
 function fmtRating(r) {
@@ -415,7 +437,7 @@ function fmtRating(r) {
 
 /** Fill in one comparison card (prefix "a" or "b") from a MovieOut. */
 function renderCard(prefix, movie) {
-  const isLocked = movie.id === lockedMovieId;
+  const isLocked = movie.id === lockedMovieId || movie.letterboxd_rating === lockedRating;
   document.getElementById(`card-${prefix}`).classList.toggle("locked-card", isLocked);
   document.getElementById(`title-${prefix}`).textContent = (isLocked ? "\u{1F512} " : "") + movie.title;
   document.getElementById(`year-${prefix}`).textContent = movie.year ?? "";
@@ -441,7 +463,9 @@ async function loadNextPair() {
   document.getElementById("vs-row").style.display = "none";
   const banner = document.getElementById("banner");
   try {
-    const url = lockedMovieId === null ? "/next_pair" : `/next_pair?locked_movie_id=${lockedMovieId}`;
+    let url = "/next_pair";
+    if (lockedMovieId !== null) url = `/next_pair?locked_movie_id=${lockedMovieId}`;
+    else if (lockedRating !== null) url = `/next_pair?locked_rating=${lockedRating}`;
     const res = await fetch(url);
     if (!res.ok) {
       const err = await res.json().catch(() => ({}));
@@ -775,14 +799,18 @@ document.getElementById("history-toggle").addEventListener("click", async () => 
   }
 });
 
-// -- Locking a movie (pair it against everything else to nail down its score) --
+// -- Locking a movie or a rating tier (focus /next_pair on just that) -----
+//
+// The two locks are mutually exclusive: picking one clears the other, and
+// only one of the movie-lock input / rating-lock select / "locked"
+// indicator is shown at a time.
 
-/** Show the lock input or the "locked" indicator, whichever applies. */
+/** Show the lock inputs or the "locked" indicator, whichever applies. */
 function updateLockUI() {
-  const input = document.getElementById("lock-input");
-  const active = document.getElementById("lock-active");
-  input.hidden = lockedMovieId !== null;
-  active.hidden = lockedMovieId === null;
+  const locked = lockedMovieId !== null || lockedRating !== null;
+  document.getElementById("lock-input").hidden = locked;
+  document.getElementById("lock-rating-select").hidden = locked;
+  document.getElementById("lock-active").hidden = !locked;
 }
 
 const lockInput = document.getElementById("lock-input");
@@ -790,14 +818,27 @@ lockInput.addEventListener("input", () => {
   const label = lockInput.value.trim();
   if (!movieLabelToId.has(label)) return; // Wait for an exact datalist match.
   lockedMovieId = movieLabelToId.get(label);
+  lockedRating = null;
   document.getElementById("lock-title").textContent = label;
   lockInput.value = "";
   updateLockUI();
   loadNextPair();
 });
 
+const lockRatingSelect = document.getElementById("lock-rating-select");
+lockRatingSelect.addEventListener("change", () => {
+  if (!lockRatingSelect.value) return;
+  lockedRating = parseFloat(lockRatingSelect.value);
+  lockedMovieId = null;
+  document.getElementById("lock-title").textContent = `${fmtRating(lockedRating)} tier`;
+  lockRatingSelect.value = "";
+  updateLockUI();
+  loadNextPair();
+});
+
 document.getElementById("unlock-btn").addEventListener("click", () => {
   lockedMovieId = null;
+  lockedRating = null;
   updateLockUI();
   loadNextPair();
 });

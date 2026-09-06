@@ -11,7 +11,7 @@ from collections import defaultdict
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from enum import Enum
-from typing import KeysView, TypeAlias
+from typing import AbstractSet, KeysView, TypeAlias
 
 import choix
 import networkx as nx
@@ -107,6 +107,7 @@ class SelectionStrategy(str, Enum):
     """Which rule in `select_next_pair`'s priority order produced a pair."""
 
     LOCKED = "locked"
+    LOCKED_RATING = "locked_rating"
     CONNECTIVITY = "connectivity"
     SAME_RATING = "same_rating"
     UNCERTAINTY = "uncertainty"
@@ -616,7 +617,7 @@ def _weighted_choice(
 def _weighted_random_pair(
     all_ids: list[MovieId],
     counts: dict[MovieId, int],
-    exclude: KeysView[PairKey] | None,
+    exclude: AbstractSet[PairKey] | None,
     max_attempts: int = 200,
 ) -> Pair | None:
     """A random pair of movie ids, weighted toward under-compared movies."""
@@ -637,7 +638,7 @@ def _weighted_random_pair(
 
 def _cross_component_pair(
     components: list[set[MovieId]],
-    used_pairs: KeysView[PairKey],
+    used_pairs: AbstractSet[PairKey],
     counts: dict[MovieId, int],
     max_attempts: int = 20,
 ) -> Pair | None:
@@ -671,7 +672,7 @@ def _rating_buckets(movies: list[Movie]) -> dict[float, list[MovieId]]:
 
 def _same_rating_pair(
     movies: list[Movie],
-    used_pairs: KeysView[PairKey],
+    used_pairs: AbstractSet[PairKey],
     counts: dict[MovieId, int],
     max_attempts: int = 50,
 ) -> Pair | None:
@@ -703,7 +704,7 @@ def _same_rating_pair(
 def _max_uncertainty_pair(
     movies: list[Movie],
     scores: ScoreMap,
-    used_pairs: KeysView[PairKey],
+    used_pairs: AbstractSet[PairKey],
     counts: dict[MovieId, int],
 ) -> Pair | None:
     """The unused pair, from a sampled pool weighted toward under-compared
@@ -734,7 +735,7 @@ def _locked_pair(
     movies: list[Movie],
     scores: ScoreMap,
     locked_id: MovieId,
-    used_pairs: KeysView[PairKey] | None,
+    used_pairs: AbstractSet[PairKey] | None,
     counts: dict[MovieId, int],
 ) -> Pair | None:
     """The pair (locked_id, opponent) whose predicted win probability is
@@ -768,8 +769,33 @@ def _locked_pair(
     return best_pair
 
 
+def _locked_rating_pair(
+    movies: list[Movie],
+    scores: ScoreMap,
+    rating: float,
+    used_pairs: AbstractSet[PairKey] | None,
+    counts: dict[MovieId, int],
+) -> Pair | None:
+    """The most-uncertain unused pair among movies rated `rating` (rounded
+    to the nearest half-star), so you can grind through refining order
+    within one tier without any cross-tier or connectivity detours.
+
+    `used_pairs`: pass the real cache to avoid repeats, or None to allow
+    them once every pair within the tier has already been compared.
+    """
+    key = round(rating * 2) / 2
+    bucket_ids = set(_rating_buckets(movies).get(key, []))
+    bucket_movies = [m for m in movies if m.id in bucket_ids]
+    if len(bucket_movies) < 2:
+        return None
+    exclude = used_pairs if used_pairs is not None else frozenset()
+    return _max_uncertainty_pair(bucket_movies, scores, exclude, counts)
+
+
 def select_next_pair(
-    conn: sqlite3.Connection, locked_id: MovieId | None = None
+    conn: sqlite3.Connection,
+    locked_id: MovieId | None = None,
+    locked_rating: float | None = None,
 ) -> tuple[Pair, SelectionStrategy] | None:
     """Return ((movie_a_id, movie_b_id), strategy) for the next comparison,
     or None if fewer than 2 movies exist.
@@ -778,6 +804,10 @@ def select_next_pair(
     paired against whichever opponent is most uncertain -- this overrides
     the usual connectivity/same-rating/uncertainty priority order, since the
     point of locking a movie is to focus entirely on nailing down its score.
+
+    `locked_rating`: if given (and `locked_id` isn't), every pair returned
+    is drawn from movies rated `locked_rating`, for the same reason -- to
+    focus entirely on ordering one star-rating tier.
     """
     movies = get_movies(conn)
     if len(movies) < 2:
@@ -796,6 +826,16 @@ def select_next_pair(
             pair = _locked_pair(movies, scores, locked_id, None, counts)
         if pair:
             return pair, SelectionStrategy.LOCKED
+    elif locked_rating is not None:
+        scores = current_scores(conn)
+        pair = _locked_rating_pair(movies, scores, locked_rating, used_pairs, counts)
+        if not pair:
+            # Every pair within the tier has already been compared -- allow
+            # a repeat rather than falling back to the unrelated global
+            # strategy.
+            pair = _locked_rating_pair(movies, scores, locked_rating, None, counts)
+        if pair:
+            return pair, SelectionStrategy.LOCKED_RATING
 
     total_possible = len(all_ids) * (len(all_ids) - 1) // 2
     if len(used_pairs) >= total_possible:
