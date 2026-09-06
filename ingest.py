@@ -160,6 +160,24 @@ def ingest(diary_path: Path | None, ratings_path: Path | None) -> int:
     return len(merged)
 
 
+def ingest_from_data_dir(data_dir: Path | None = None) -> int:
+    """Ingest diary.csv and/or ratings.csv from `data_dir` (default: the
+    `data/` directory next to this file), whichever of the two exist.
+
+    Shared by both `main()` below and the app's "Sync from data/" button
+    (see POST /sync in app.py), so there's one place that resolves the
+    default paths and decides what "nothing to ingest" means.
+
+    Raises FileNotFoundError if neither file exists.
+    """
+    data_dir = data_dir or (Path(__file__).parent / "data")
+    diary_path = data_dir / "diary.csv"
+    ratings_path = data_dir / "ratings.csv"
+    if not diary_path.exists() and not ratings_path.exists():
+        raise FileNotFoundError(f"Neither {diary_path} nor {ratings_path} exists.")
+    return ingest(diary_path, ratings_path)
+
+
 def main() -> None:
     """Parse CLI args and run `ingest` against the resolved CSV paths."""
     parser = argparse.ArgumentParser(description=__doc__)
@@ -179,9 +197,12 @@ def main() -> None:
         diary_path = diary_path or args.data_dir / "diary.csv"
         ratings_path = ratings_path or args.data_dir / "ratings.csv"
     if diary_path is None and ratings_path is None:
-        default_dir = Path(__file__).parent / "data"
-        diary_path = default_dir / "diary.csv"
-        ratings_path = default_dir / "ratings.csv"
+        try:
+            ingest_from_data_dir()
+        except FileNotFoundError as e:
+            print(f"{e} Pass --data-dir, --diary, or --ratings.", file=sys.stderr)
+            sys.exit(1)
+        return
 
     if not (diary_path and diary_path.exists()) and not (
         ratings_path and ratings_path.exists()

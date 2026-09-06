@@ -1,12 +1,13 @@
-"""FastAPI server: /, /status, /next_pair, /compare, /comparisons, /movies, /export."""
+"""FastAPI server: /, /status, /next_pair, /compare, /comparisons, /movies,
+/sync, /refit, /seed_rating_comparisons, /export."""
 
 from __future__ import annotations
 
 import csv
 import io
 import sqlite3
+import time
 from contextlib import asynccontextmanager
-from datetime import datetime, timezone
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException, Query
@@ -15,6 +16,7 @@ from pydantic import BaseModel
 
 import model
 from db import get_conn, init_db
+from ingest import ingest_from_data_dir
 from posters import fetch_poster_url
 
 STATIC_DIR = Path(__file__).parent / "static"
@@ -65,8 +67,9 @@ class StatusOut(BaseModel):
     """Overall progress: counts, connectivity, stability, and the top-20."""
 
     n_movies: int
-    n_comparisons_decisive: int
-    n_comparisons_total: int
+    n_comparisons_decisive: int  # Yours only -- excludes rating-derived comparisons.
+    n_comparisons_total: int  # Yours only (decisive + skipped), same exclusion.
+    n_rating_derived: int  # From star ratings -- see POST /seed_rating_comparisons.
     n_components: int
     is_connected: bool
     kendall_tau_vs_prev: float | None
@@ -83,10 +86,31 @@ class CompareRequest(BaseModel):
 
 
 class CompareResult(BaseModel):
-    """Whether a comparison change triggered a refit, and where things stand."""
+    """Where the comparison count stands after recording or editing one."""
 
-    refit: bool
     n_comparisons_decisive: int
+
+
+class RefitResult(BaseModel):
+    """The outcome of an explicit POST /refit."""
+
+    n_comparisons_decisive: int
+    kendall_tau_vs_prev: float | None
+    elapsed_seconds: float
+
+
+class SeedResult(BaseModel):
+    """The outcome of an explicit POST /seed_rating_comparisons."""
+
+    n_added: int
+    n_comparisons_total: int
+
+
+class SyncResult(BaseModel):
+    """The outcome of an explicit POST /sync."""
+
+    n_movies_ingested: int
+    n_movies_total: int
 
 
 class MovieRefOut(BaseModel):
@@ -105,6 +129,7 @@ class ComparisonOut(BaseModel):
     movie_b: MovieRefOut
     winner_id: int | None
     timestamp: str
+    source: model.ComparisonSource
 
 
 class ComparisonListOut(BaseModel):
@@ -178,6 +203,7 @@ def _to_comparison_out(
         movie_b=MovieRefOut(id=movie_b.id, title=movie_b.title, year=movie_b.year),
         winner_id=record.winner_id,
         timestamp=record.timestamp,
+        source=record.source,
     )
 
 
@@ -207,8 +233,9 @@ def status() -> StatusOut:
 
         return StatusOut(
             n_movies=len(movies),
-            n_comparisons_decisive=model.count_decisive(conn),
-            n_comparisons_total=model.count_total(conn),
+            n_comparisons_decisive=model.count_decisive(conn, source=model.ComparisonSource.USER),
+            n_comparisons_total=model.count_total(conn, source=model.ComparisonSource.USER),
+            n_rating_derived=model.count_total(conn, source=model.ComparisonSource.RATING),
             n_components=len(components),
             is_connected=len(components) <= 1,
             kendall_tau_vs_prev=run.kendall_tau_vs_prev if run else None,
@@ -220,11 +247,21 @@ def status() -> StatusOut:
 
 
 @app.get("/next_pair", response_model=PairOut)
-def next_pair() -> PairOut:
+def next_pair(
+    locked_movie_id: int | None = Query(
+        default=None,
+        description="If set, every pair returned includes this movie, "
+        "paired against whichever opponent is most uncertain.",
+    ),
+) -> PairOut:
     """The next pair of movies to compare, chosen by active learning."""
     conn = get_conn()
     try:
-        selection = model.select_next_pair(conn)
+        if locked_movie_id is not None and model.get_movie(conn, locked_movie_id) is None:
+            raise HTTPException(
+                status_code=404, detail=f"movie id {locked_movie_id} not found"
+            )
+        selection = model.select_next_pair(conn, locked_id=locked_movie_id)
         if selection is None:
             raise HTTPException(
                 status_code=400,
@@ -246,7 +283,7 @@ def next_pair() -> PairOut:
 
 @app.post("/compare", response_model=CompareResult)
 def compare(req: CompareRequest) -> CompareResult:
-    """Record a comparison result, refitting the model periodically."""
+    """Record a comparison result. Does not refit -- see POST /refit."""
     if req.movie_a_id == req.movie_b_id:
         raise HTTPException(status_code=400, detail="movie_a_id and movie_b_id must differ")
     if req.winner_id is not None and req.winner_id not in (req.movie_a_id, req.movie_b_id):
@@ -258,29 +295,9 @@ def compare(req: CompareRequest) -> CompareResult:
             if model.get_movie(conn, movie_id) is None:
                 raise HTTPException(status_code=404, detail=f"movie id {movie_id} not found")
 
-        conn.execute(
-            """
-            INSERT INTO comparisons (movie_a_id, movie_b_id, winner_id, timestamp)
-            VALUES (?, ?, ?, ?)
-            """,
-            (
-                req.movie_a_id,
-                req.movie_b_id,
-                req.winner_id,
-                datetime.now(timezone.utc).isoformat(),
-            ),
-        )
-        conn.commit()
-
-        prev_run = model.latest_model_run(conn)
-        prev_ts = prev_run.timestamp if prev_run else None
-        model.maybe_refit(conn)
-        new_run = model.latest_model_run(conn)
-        refit = new_run is not None and new_run.timestamp != prev_ts
-
-        return CompareResult(
-            refit=refit, n_comparisons_decisive=model.count_decisive(conn)
-        )
+        model.add_comparison(conn, req.movie_a_id, req.movie_b_id, req.winner_id)
+        n_decisive = model.count_decisive(conn, source=model.ComparisonSource.USER)
+        return CompareResult(n_comparisons_decisive=n_decisive)
     finally:
         conn.close()
 
@@ -309,27 +326,61 @@ def list_comparisons(
     movie_id: int | None = Query(
         default=None, description="Only comparisons involving this movie."
     ),
+    source: model.ComparisonSource | None = Query(
+        default=None, description="Only comparisons from this source."
+    ),
 ) -> ComparisonListOut:
     """A page of comparison history, most recent first, optionally filtered
-    to comparisons involving `movie_id`."""
+    to comparisons involving `movie_id` and/or coming from `source`."""
     conn = get_conn()
     try:
         records = model.list_comparisons(
-            conn, limit=limit, before_id=before_id, movie_id=movie_id
+            conn, limit=limit, before_id=before_id, movie_id=movie_id, source=source
         )
         movies_by_id = {m.id: m for m in model.get_movies(conn)}
         out = [_to_comparison_out(r, movies_by_id) for r in records]
         return ComparisonListOut(
             comparisons=[c for c in out if c is not None],
-            total=model.count_total(conn, movie_id=movie_id),
+            total=model.count_total(conn, movie_id=movie_id, source=source),
         )
+    finally:
+        conn.close()
+
+
+@app.post("/sync", response_model=SyncResult)
+def sync() -> SyncResult:
+    """Re-read data/diary.csv and/or data/ratings.csv and upsert movies from
+    them -- the same thing `python ingest.py --data-dir data/` does, just
+    without leaving the browser. Export a fresh copy from Letterboxd and
+    drop it in data/ first; this only re-reads files already on disk."""
+    conn = get_conn()
+    try:
+        try:
+            n_ingested = ingest_from_data_dir()
+        except FileNotFoundError as e:
+            raise HTTPException(status_code=400, detail=str(e))
+        n_total = len(model.get_movies(conn))
+        return SyncResult(n_movies_ingested=n_ingested, n_movies_total=n_total)
+    finally:
+        conn.close()
+
+
+@app.post("/seed_rating_comparisons", response_model=SeedResult)
+def seed_rating_comparisons() -> SeedResult:
+    """Insert a permanent comparison for every pair of differently-rated
+    movies that doesn't already have one, so you can browse, edit, or delete
+    them in the Comparison history panel just like any other comparison."""
+    conn = get_conn()
+    try:
+        n_added = model.seed_rating_comparisons(conn)
+        return SeedResult(n_added=n_added, n_comparisons_total=model.count_total(conn))
     finally:
         conn.close()
 
 
 @app.patch("/comparisons/{comparison_id}", response_model=CompareResult)
 def update_comparison(comparison_id: int, req: UpdateComparisonRequest) -> CompareResult:
-    """Reassign a past comparison's winner and refit immediately."""
+    """Reassign a past comparison's winner. Does not refit -- see POST /refit."""
     conn = get_conn()
     try:
         record = model.get_comparison(conn, comparison_id)
@@ -346,18 +397,15 @@ def update_comparison(comparison_id: int, req: UpdateComparisonRequest) -> Compa
                 detail="winner_id must be one of the two movies in this comparison",
             )
         model.update_comparison_winner(conn, comparison_id, req.winner_id)
-        # Edits are rare, deliberate actions (unlike the high-frequency
-        # /compare flow) -- refit immediately rather than waiting for
-        # REFIT_INTERVAL, so the ranking reflects the correction right away.
-        model.fit_scores(conn)
-        return CompareResult(refit=True, n_comparisons_decisive=model.count_decisive(conn))
+        n_decisive = model.count_decisive(conn, source=model.ComparisonSource.USER)
+        return CompareResult(n_comparisons_decisive=n_decisive)
     finally:
         conn.close()
 
 
 @app.delete("/comparisons/{comparison_id}", response_model=CompareResult)
 def delete_comparison(comparison_id: int) -> CompareResult:
-    """Permanently remove a past comparison and refit immediately."""
+    """Permanently remove a past comparison. Does not refit -- see POST /refit."""
     conn = get_conn()
     try:
         record = model.get_comparison(conn, comparison_id)
@@ -366,8 +414,29 @@ def delete_comparison(comparison_id: int) -> CompareResult:
                 status_code=404, detail=f"comparison id {comparison_id} not found"
             )
         model.delete_comparison(conn, comparison_id)
+        n_decisive = model.count_decisive(conn, source=model.ComparisonSource.USER)
+        return CompareResult(n_comparisons_decisive=n_decisive)
+    finally:
+        conn.close()
+
+
+@app.post("/refit", response_model=RefitResult)
+def refit() -> RefitResult:
+    """Fit the Bradley-Terry model over all current comparisons right now."""
+    conn = get_conn()
+    try:
+        t0 = time.perf_counter()
         model.fit_scores(conn)
-        return CompareResult(refit=True, n_comparisons_decisive=model.count_decisive(conn))
+        elapsed = time.perf_counter() - t0
+        run = model.latest_model_run(conn)
+        if run is None:
+            raise HTTPException(status_code=400, detail="No movies to fit. Run ingest.py first.")
+        n_decisive = model.count_decisive(conn, source=model.ComparisonSource.USER)
+        return RefitResult(
+            n_comparisons_decisive=n_decisive,
+            kendall_tau_vs_prev=run.kendall_tau_vs_prev,
+            elapsed_seconds=round(elapsed, 2),
+        )
     finally:
         conn.close()
 

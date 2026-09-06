@@ -34,8 +34,70 @@
   }
   header h1 { font-size: 1.1rem; margin: 0; font-weight: 600; }
   header h1 span { color: var(--accent); }
+  .header-right { display: flex; align-items: center; gap: 0.75rem; flex-wrap: wrap; }
   #stats { color: var(--muted); font-size: 0.85rem; }
   #stats b { color: var(--text); }
+  #refit-btn {
+    background: none;
+    border: 1px solid var(--accent);
+    color: var(--accent);
+    border-radius: 6px;
+    padding: 0.35rem 0.8rem;
+    font-size: 0.8rem;
+    cursor: pointer;
+  }
+  #refit-btn:hover { background: var(--accent); color: #14161a; }
+  #refit-btn:disabled { opacity: 0.5; cursor: default; background: none; color: var(--accent); }
+  #seed-btn {
+    background: none;
+    border: 1px solid var(--border);
+    color: var(--muted);
+    border-radius: 6px;
+    padding: 0.35rem 0.8rem;
+    font-size: 0.8rem;
+    cursor: pointer;
+  }
+  #seed-btn:hover { border-color: var(--accent); color: var(--text); }
+  #seed-btn:disabled { opacity: 0.5; cursor: default; }
+  #sync-btn {
+    background: none;
+    border: 1px solid var(--border);
+    color: var(--muted);
+    border-radius: 6px;
+    padding: 0.35rem 0.8rem;
+    font-size: 0.8rem;
+    cursor: pointer;
+  }
+  #sync-btn:hover { border-color: var(--accent); color: var(--text); }
+  #sync-btn:disabled { opacity: 0.5; cursor: default; }
+  #lock-input {
+    background: var(--card);
+    border: 1px solid var(--border);
+    color: var(--text);
+    border-radius: 6px;
+    padding: 0.35rem 0.6rem;
+    font-size: 0.8rem;
+    width: 11rem;
+  }
+  #lock-input:focus { outline: none; border-color: var(--accent); }
+  #lock-active {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    font-size: 0.8rem;
+    color: var(--text);
+  }
+  #unlock-btn {
+    background: none;
+    border: 1px solid var(--border);
+    color: var(--muted);
+    border-radius: 6px;
+    padding: 0.3rem 0.6rem;
+    font-size: 0.75rem;
+    cursor: pointer;
+  }
+  #unlock-btn:hover { border-color: var(--accent); color: var(--text); }
+  .card.locked-card { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
   main {
     max-width: 1000px;
     margin: 0 auto;
@@ -198,6 +260,14 @@
     cursor: pointer;
   }
   #history-filter-clear:hover { border-color: var(--accent); color: var(--text); }
+  #history-source-filter {
+    background: var(--card);
+    border: 1px solid var(--border);
+    color: var(--text);
+    border-radius: 6px;
+    padding: 0.4rem 0.5rem;
+    font-size: 0.8rem;
+  }
   #history-list { list-style: none; margin: 0; padding: 0; }
   .history-row {
     display: flex;
@@ -211,6 +281,16 @@
   }
   .history-label { color: var(--text); }
   .history-timestamp { color: var(--muted); font-size: 0.75rem; margin-left: 0.5rem; }
+  .history-source-badge {
+    color: var(--accent);
+    border: 1px solid var(--accent);
+    border-radius: 4px;
+    font-size: 0.65rem;
+    padding: 1px 5px;
+    margin-left: 0.5rem;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+  }
   .history-actions { display: flex; gap: 0.4rem; flex-wrap: wrap; }
   .hist-btn {
     background: none;
@@ -247,7 +327,23 @@
 <body>
 <header>
   <h1><span>&#9670;</span> Letterboxd Ranker</h1>
-  <div id="stats">loading&hellip;</div>
+  <div class="header-right">
+    <div id="stats">loading&hellip;</div>
+    <input
+      id="lock-input"
+      type="text"
+      list="movie-datalist"
+      placeholder="&#128274; Lock a movie&hellip;"
+      autocomplete="off"
+    />
+    <div id="lock-active" hidden>
+      &#128274; <span id="lock-title"></span>
+      <button id="unlock-btn" type="button">Unlock</button>
+    </div>
+    <button id="sync-btn" type="button" title="Re-read data/diary.csv and data/ratings.csv">Sync from data/</button>
+    <button id="seed-btn" type="button">Seed from ratings</button>
+    <button id="refit-btn" type="button">Refit now</button>
+  </div>
 </header>
 <main>
   <div id="banner"></div>
@@ -294,6 +390,11 @@
           autocomplete="off"
         />
         <button id="history-filter-clear" type="button">Clear</button>
+        <select id="history-source-filter">
+          <option value="">All sources</option>
+          <option value="user">My comparisons only</option>
+          <option value="rating">From ratings only</option>
+        </select>
       </div>
       <datalist id="movie-datalist"></datalist>
       <ol id="history-list"></ol>
@@ -305,6 +406,7 @@
 
 <script>
 let current = null; // The pair currently shown, or null if none has loaded yet.
+let lockedMovieId = null; // Movie id to keep pairing against everything else, or null.
 
 /** Star-rating text for a movie's `letterboxd_rating` (e.g. "★★★★ (4)"). */
 function fmtRating(r) {
@@ -313,7 +415,9 @@ function fmtRating(r) {
 
 /** Fill in one comparison card (prefix "a" or "b") from a MovieOut. */
 function renderCard(prefix, movie) {
-  document.getElementById(`title-${prefix}`).textContent = movie.title;
+  const isLocked = movie.id === lockedMovieId;
+  document.getElementById(`card-${prefix}`).classList.toggle("locked-card", isLocked);
+  document.getElementById(`title-${prefix}`).textContent = (isLocked ? "\u{1F512} " : "") + movie.title;
   document.getElementById(`year-${prefix}`).textContent = movie.year ?? "";
   document.getElementById(`rating-${prefix}`).textContent = fmtRating(movie.letterboxd_rating);
   const ph = document.getElementById(`ph-${prefix}`);
@@ -337,7 +441,8 @@ async function loadNextPair() {
   document.getElementById("vs-row").style.display = "none";
   const banner = document.getElementById("banner");
   try {
-    const res = await fetch("/next_pair");
+    const url = lockedMovieId === null ? "/next_pair" : `/next_pair?locked_movie_id=${lockedMovieId}`;
+    const res = await fetch(url);
     if (!res.ok) {
       const err = await res.json().catch(() => ({}));
       banner.textContent = err.detail || "Could not load a pair.";
@@ -383,8 +488,10 @@ async function loadStatus() {
       s.kendall_tau_vs_prev == null
         ? ""
         : ` &mdash; stability &tau;=${s.kendall_tau_vs_prev.toFixed(2)}`;
+    const ratingNote =
+      s.n_rating_derived > 0 ? ` &middot; <b>${s.n_rating_derived}</b> from ratings` : "";
     document.getElementById("stats").innerHTML =
-      `<b>${s.n_movies}</b> movies &middot; <b>${s.n_comparisons_decisive}</b> comparisons${connNote}${tauNote}`;
+      `<b>${s.n_movies}</b> movies &middot; <b>${s.n_comparisons_decisive}</b> comparisons${ratingNote}${connNote}${tauNote}`;
 
     const list = document.getElementById("top20");
     list.innerHTML = "";
@@ -397,6 +504,97 @@ async function loadStatus() {
     // Status is a nice-to-have; ignore failures here.
   }
 }
+
+/** Explicitly fit the model (fitting is manual-only; see POST /refit). */
+async function triggerRefit() {
+  const btn = document.getElementById("refit-btn");
+  btn.disabled = true;
+  const originalText = btn.textContent;
+  btn.textContent = "Fitting…";
+  try {
+    const res = await fetch("/refit", { method: "POST" });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      alert(err.detail || "Refit failed.");
+      btn.textContent = originalText;
+      return;
+    }
+    const r = await res.json();
+    btn.textContent = `Done (${r.elapsed_seconds}s)`;
+    await loadStatus();
+    refreshHistoryIfOpen();
+    setTimeout(() => {
+      btn.textContent = originalText;
+    }, 2000);
+  } catch (e) {
+    btn.textContent = originalText;
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+document.getElementById("refit-btn").addEventListener("click", triggerRefit);
+
+/** Re-read data/diary.csv and/or data/ratings.csv and upsert movies from them. */
+async function triggerSync() {
+  const btn = document.getElementById("sync-btn");
+  btn.disabled = true;
+  const originalText = btn.textContent;
+  btn.textContent = "Syncing…";
+  try {
+    const res = await fetch("/sync", { method: "POST" });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      alert(err.detail || "Sync failed.");
+      btn.textContent = originalText;
+      return;
+    }
+    const r = await res.json();
+    btn.textContent = `${r.n_movies_total} movies`;
+    await loadStatus();
+    await loadMovieOptions(); // New movies need to show up in the lock/history datalist too.
+    refreshHistoryIfOpen();
+    setTimeout(() => {
+      btn.textContent = originalText;
+    }, 2500);
+  } catch (e) {
+    btn.textContent = originalText;
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+document.getElementById("sync-btn").addEventListener("click", triggerSync);
+
+/** Insert one permanent comparison for every unseeded cross-tier rating pair. */
+async function triggerSeed() {
+  const btn = document.getElementById("seed-btn");
+  btn.disabled = true;
+  const originalText = btn.textContent;
+  btn.textContent = "Seeding…";
+  try {
+    const res = await fetch("/seed_rating_comparisons", { method: "POST" });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      alert(err.detail || "Seeding failed.");
+      btn.textContent = originalText;
+      return;
+    }
+    const r = await res.json();
+    btn.textContent = r.n_added > 0 ? `+${r.n_added} added` : "Already up to date";
+    await loadStatus();
+    refreshHistoryIfOpen();
+    setTimeout(() => {
+      btn.textContent = originalText;
+    }, 2500);
+  } catch (e) {
+    btn.textContent = originalText;
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+document.getElementById("seed-btn").addEventListener("click", triggerSeed);
 
 document.getElementById("card-a").addEventListener("click", () => current && submitChoice(current.a.id));
 document.getElementById("card-b").addEventListener("click", () => current && submitChoice(current.b.id));
@@ -422,6 +620,7 @@ const HISTORY_PAGE_SIZE = 25;
 let historyCursor = null; // ID of the oldest comparison loaded so far.
 let historyHasMore = true;
 let historyMovieFilter = null; // Movie ID to restrict to, or null for all.
+let historySourceFilter = ""; // "", "user", or "rating".
 let moviesLoaded = false;
 const movieLabelToId = new Map();
 
@@ -474,6 +673,13 @@ function renderHistoryRow(c) {
   const aLabel = c.movie_a.title + (c.movie_a.year ? ` (${c.movie_a.year})` : "");
   const bLabel = c.movie_b.title + (c.movie_b.year ? ` (${c.movie_b.year})` : "");
   label.textContent = `${aLabel} vs ${bLabel}`;
+  if (c.source === "rating") {
+    const badge = document.createElement("span");
+    badge.className = "history-source-badge";
+    badge.textContent = "from rating";
+    badge.title = "Auto-generated from your star ratings, not a comparison you made.";
+    label.appendChild(badge);
+  }
   const ts = document.createElement("span");
   ts.className = "history-timestamp";
   ts.textContent = new Date(c.timestamp).toLocaleString();
@@ -521,6 +727,7 @@ function historyQueryString() {
   const params = new URLSearchParams({ limit: String(HISTORY_PAGE_SIZE) });
   if (historyCursor !== null) params.set("before_id", historyCursor);
   if (historyMovieFilter !== null) params.set("movie_id", historyMovieFilter);
+  if (historySourceFilter !== "") params.set("source", historySourceFilter);
   return params.toString();
 }
 
@@ -568,6 +775,33 @@ document.getElementById("history-toggle").addEventListener("click", async () => 
   }
 });
 
+// -- Locking a movie (pair it against everything else to nail down its score) --
+
+/** Show the lock input or the "locked" indicator, whichever applies. */
+function updateLockUI() {
+  const input = document.getElementById("lock-input");
+  const active = document.getElementById("lock-active");
+  input.hidden = lockedMovieId !== null;
+  active.hidden = lockedMovieId === null;
+}
+
+const lockInput = document.getElementById("lock-input");
+lockInput.addEventListener("input", () => {
+  const label = lockInput.value.trim();
+  if (!movieLabelToId.has(label)) return; // Wait for an exact datalist match.
+  lockedMovieId = movieLabelToId.get(label);
+  document.getElementById("lock-title").textContent = label;
+  lockInput.value = "";
+  updateLockUI();
+  loadNextPair();
+});
+
+document.getElementById("unlock-btn").addEventListener("click", () => {
+  lockedMovieId = null;
+  updateLockUI();
+  loadNextPair();
+});
+
 document.getElementById("history-load-more").addEventListener("click", loadHistoryPage);
 
 const historyFilterInput = document.getElementById("history-filter-input");
@@ -585,8 +819,15 @@ document.getElementById("history-filter-clear").addEventListener("click", () => 
   resetAndLoadHistory();
 });
 
+document.getElementById("history-source-filter").addEventListener("change", (e) => {
+  historySourceFilter = e.target.value;
+  resetAndLoadHistory();
+});
+
 loadStatus();
 loadNextPair();
+moviesLoaded = true;
+loadMovieOptions(); // Needed by the lock input as well as the history filter.
 </script>
 </body>
 </html>
