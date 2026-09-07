@@ -66,6 +66,25 @@ uvicorn app:app --reload
 Open http://127.0.0.1:8000 and start comparing.
 Left/right arrow keys pick A/B, spacebar skips ("can't decide").
 
+## Stopping the app
+
+If it's running in the foreground of the terminal you started it in, press Ctrl+C.
+
+If it's in the background (started with `&`, `nohup`, or you've just lost track of which terminal it's in), find and stop it by its command line rather than guessing a PID:
+
+```bash
+pkill -f "uvicorn app:app"
+```
+
+Or see it before killing it:
+
+```bash
+pgrep -fal "uvicorn app:app"
+kill <pid>
+```
+
+`--reload` runs as a supervisor process managing a separate worker process underneath it; stopping the supervisor (the PID either command above finds) shuts the worker down with it, so nothing's left running.
+
 ## Accessing from your phone (same Wi-Fi network)
 
 Bind to all interfaces instead of just localhost:
