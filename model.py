@@ -211,6 +211,21 @@ def list_comparisons(
     return [ComparisonRecord.from_row(row) for row in rows]
 
 
+def all_comparisons(
+    conn: sqlite3.Connection, source: ComparisonSource | None = None
+) -> list[ComparisonRecord]:
+    """Every comparison from `source` (or all sources), oldest first.
+    Unlike list_comparisons, not paginated -- for bulk export (see
+    GET /export_comparisons in app.py), not the history UI."""
+    where = "WHERE source = ?" if source is not None else ""
+    params = (source.value,) if source is not None else ()
+    rows = conn.execute(
+        f"SELECT id, movie_a_id, movie_b_id, winner_id, timestamp, source FROM comparisons {where} ORDER BY id ASC",
+        params,
+    ).fetchall()
+    return [ComparisonRecord.from_row(row) for row in rows]
+
+
 def get_comparison(
     conn: sqlite3.Connection, comparison_id: int
 ) -> ComparisonRecord | None:

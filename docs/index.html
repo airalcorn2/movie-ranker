@@ -1,0 +1,504 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>Letterboxd Ranker</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='90' fill='%23ff8000'%3E%E2%97%86%3C/text%3E%3C/svg%3E" />
+<style>
+  :root {
+    color-scheme: light dark;
+    --bg: #14161a;
+    --card: #1e2126;
+    --card-hover: #262a31;
+    --text: #e8e8ea;
+    --muted: #9a9fa6;
+    --accent: #ff8000; /* Letterboxd orange. */
+    --accent2: #00e054; /* Letterboxd green. */
+    --border: #33373f;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+    min-height: 100vh;
+  }
+  a { color: var(--accent2); }
+  header {
+    padding: 1rem 1.5rem;
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+  }
+  header h1 { font-size: 1.1rem; margin: 0; font-weight: 600; }
+  header h1 span { color: var(--accent); }
+  .header-right { display: flex; align-items: center; gap: 0.75rem; flex-wrap: wrap; }
+  #stats { color: var(--muted); font-size: 0.85rem; }
+  #stats b { color: var(--text); }
+  .btn {
+    background: none;
+    border: 1px solid var(--border);
+    color: var(--muted);
+    border-radius: 6px;
+    padding: 0.35rem 0.8rem;
+    font-size: 0.8rem;
+    cursor: pointer;
+  }
+  .btn:hover { border-color: var(--accent); color: var(--text); }
+  .btn:disabled { opacity: 0.5; cursor: default; }
+  .btn.primary { border-color: var(--accent); color: var(--accent); }
+  .btn.primary:hover { background: var(--accent); color: #14161a; }
+  #lock-input {
+    background: var(--card);
+    border: 1px solid var(--border);
+    color: var(--text);
+    border-radius: 6px;
+    padding: 0.35rem 0.6rem;
+    font-size: 0.8rem;
+    width: 11rem;
+  }
+  #lock-input:focus { outline: none; border-color: var(--accent); }
+  #lock-rating-select {
+    background: var(--card);
+    border: 1px solid var(--border);
+    color: var(--text);
+    border-radius: 6px;
+    padding: 0.35rem 0.5rem;
+    font-size: 0.8rem;
+  }
+  #lock-active {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    font-size: 0.8rem;
+    color: var(--text);
+  }
+  .card.locked-card { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
+  main {
+    max-width: 1000px;
+    margin: 0 auto;
+    padding: 2rem 1.5rem 4rem;
+  }
+  section#setup { margin-bottom: 2rem; }
+  section#setup h3 {
+    font-size: 0.95rem;
+    color: var(--muted);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    margin-bottom: 0.75rem;
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+    flex-wrap: wrap;
+  }
+  #setup-toggle {
+    background: none;
+    border: 1px solid var(--border);
+    color: var(--muted);
+    border-radius: 4px;
+    padding: 1px 8px;
+    font-size: 0.75rem;
+    text-transform: none;
+    letter-spacing: normal;
+    cursor: pointer;
+  }
+  #setup-toggle:hover { border-color: var(--accent); color: var(--text); }
+  #setup-note {
+    color: var(--muted);
+    font-size: 0.75rem;
+    text-transform: none;
+    letter-spacing: normal;
+    margin-left: auto;
+  }
+  .setup-group {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 1rem 1.25rem;
+    margin-bottom: 0.9rem;
+  }
+  .setup-group h4 { margin: 0 0 0.4rem; font-size: 0.9rem; }
+  .setup-group p { margin: 0 0 0.6rem; font-size: 0.8rem; color: var(--muted); }
+  .setup-group input[type="file"],
+  .setup-group input[type="text"] {
+    background: var(--bg);
+    border: 1px solid var(--border);
+    color: var(--text);
+    border-radius: 6px;
+    padding: 0.35rem 0.5rem;
+    font-size: 0.8rem;
+    margin: 0 0.5rem 0.5rem 0;
+  }
+  .file-btn {
+    display: inline-block;
+    background: none;
+    border: 1px solid var(--border);
+    color: var(--muted);
+    border-radius: 6px;
+    padding: 0.35rem 0.8rem;
+    font-size: 0.8rem;
+    cursor: pointer;
+  }
+  .file-btn:hover { border-color: var(--accent); color: var(--text); }
+  #setup-result { font-size: 0.8rem; color: var(--accent2); margin-top: 0.4rem; min-height: 1.1em; }
+  #vs-row {
+    display: grid;
+    grid-template-columns: 1fr auto 1fr;
+    gap: 1.5rem;
+    align-items: stretch;
+  }
+  .card {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 1.25rem;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    text-align: center;
+    cursor: pointer;
+    transition: background 0.12s, transform 0.12s, border-color 0.12s;
+  }
+  .card:hover { background: var(--card-hover); border-color: var(--accent); }
+  .card:active { transform: scale(0.98); }
+  .card img {
+    width: 100%;
+    max-width: 260px;
+    border-radius: 6px;
+    margin-bottom: 0.9rem;
+    background: #000;
+  }
+  .card .placeholder {
+    width: 100%;
+    max-width: 260px;
+    aspect-ratio: 2 / 3;
+    border-radius: 6px;
+    margin-bottom: 0.9rem;
+    background: linear-gradient(135deg, #2a2e35, #1a1c20);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--muted);
+    font-size: 0.8rem;
+    padding: 1rem;
+  }
+  .card h2 { font-size: 1.05rem; margin: 0 0 0.25rem; }
+  .card .year { color: var(--muted); font-size: 0.85rem; }
+  .card .rating { color: var(--accent); font-size: 0.85rem; margin-top: 0.4rem; }
+  .card .key-hint {
+    margin-top: 0.75rem;
+    font-size: 0.7rem;
+    color: var(--muted);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 2px 6px;
+  }
+  #vs-center {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 0.75rem;
+    color: var(--muted);
+  }
+  #skip-btn {
+    background: none;
+    border: 1px solid var(--border);
+    color: var(--muted);
+    border-radius: 6px;
+    padding: 0.5rem 0.9rem;
+    cursor: pointer;
+    font-size: 0.8rem;
+  }
+  #skip-btn:hover { border-color: var(--accent); color: var(--text); }
+  #loading { text-align: center; color: var(--muted); padding: 3rem 0; }
+  #empty-state { text-align: center; color: var(--muted); padding: 3rem 1rem; display: none; }
+  section#ranking { margin-top: 3rem; }
+  section#ranking h3 {
+    font-size: 0.95rem;
+    color: var(--muted);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    margin-bottom: 0.75rem;
+  }
+  #top20 { list-style: none; margin: 0; padding: 0; }
+  #top20 li {
+    display: flex;
+    justify-content: space-between;
+    padding: 0.45rem 0.6rem;
+    border-bottom: 1px solid var(--border);
+    font-size: 0.9rem;
+  }
+  #top20 li .n { color: var(--muted); width: 1.8rem; display: inline-block; }
+  #top20 li .sc { color: var(--muted); font-variant-numeric: tabular-nums; }
+  #export-ranking-btn {
+    display: inline-block;
+    margin-top: 1rem;
+    background: none;
+    border: none;
+    color: var(--accent2);
+    text-decoration: none;
+    font-size: 0.85rem;
+    cursor: pointer;
+    padding: 0;
+  }
+  #export-ranking-btn:hover { text-decoration: underline; }
+  #banner {
+    display: none;
+    background: #3a2a1a;
+    border: 1px solid var(--accent);
+    color: var(--text);
+    padding: 0.75rem 1rem;
+    border-radius: 8px;
+    margin-bottom: 1.5rem;
+    font-size: 0.85rem;
+  }
+  section#history { margin-top: 3rem; }
+  section#history h3 {
+    font-size: 0.95rem;
+    color: var(--muted);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    margin-bottom: 0.75rem;
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+  }
+  #history-toggle {
+    background: none;
+    border: 1px solid var(--border);
+    color: var(--muted);
+    border-radius: 4px;
+    padding: 1px 8px;
+    font-size: 0.75rem;
+    text-transform: none;
+    letter-spacing: normal;
+    cursor: pointer;
+  }
+  #history-toggle:hover { border-color: var(--accent); color: var(--text); }
+  #history-count { color: var(--muted); font-size: 0.75rem; text-transform: none; letter-spacing: normal; margin-left: auto; }
+  .history-controls {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    margin-bottom: 0.75rem;
+  }
+  #history-filter-input {
+    background: var(--card);
+    border: 1px solid var(--border);
+    color: var(--text);
+    border-radius: 6px;
+    padding: 0.4rem 0.6rem;
+    font-size: 0.85rem;
+    min-width: 14rem;
+  }
+  #history-filter-input:focus { outline: none; border-color: var(--accent); }
+  #history-filter-clear {
+    background: none;
+    border: 1px solid var(--border);
+    color: var(--muted);
+    border-radius: 6px;
+    padding: 0.4rem 0.7rem;
+    font-size: 0.8rem;
+    cursor: pointer;
+  }
+  #history-filter-clear:hover { border-color: var(--accent); color: var(--text); }
+  #history-source-filter {
+    background: var(--card);
+    border: 1px solid var(--border);
+    color: var(--text);
+    border-radius: 6px;
+    padding: 0.4rem 0.5rem;
+    font-size: 0.8rem;
+  }
+  #history-list { list-style: none; margin: 0; padding: 0; }
+  .history-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 1rem;
+    padding: 0.5rem 0.6rem;
+    border-bottom: 1px solid var(--border);
+    font-size: 0.85rem;
+    flex-wrap: wrap;
+  }
+  .history-label { color: var(--text); }
+  .history-timestamp { color: var(--muted); font-size: 0.75rem; margin-left: 0.5rem; }
+  .history-source-badge {
+    color: var(--accent);
+    border: 1px solid var(--accent);
+    border-radius: 4px;
+    font-size: 0.65rem;
+    padding: 1px 5px;
+    margin-left: 0.5rem;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+  }
+  .history-actions { display: flex; gap: 0.4rem; flex-wrap: wrap; }
+  .hist-btn {
+    background: none;
+    border: 1px solid var(--border);
+    color: var(--muted);
+    border-radius: 4px;
+    padding: 3px 8px;
+    font-size: 0.75rem;
+    cursor: pointer;
+    max-width: 14rem;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .hist-btn:hover { border-color: var(--accent); color: var(--text); }
+  .hist-btn.active { border-color: var(--accent2); color: var(--accent2); }
+  .hist-btn.danger { color: #ff5c5c; }
+  .hist-btn.danger:hover { border-color: #ff5c5c; }
+  #history-load-more {
+    display: block;
+    margin: 0.75rem auto 0;
+    background: none;
+    border: 1px solid var(--border);
+    color: var(--muted);
+    border-radius: 6px;
+    padding: 0.4rem 1rem;
+    font-size: 0.8rem;
+    cursor: pointer;
+  }
+  #history-load-more:hover { border-color: var(--accent); color: var(--text); }
+  #history-empty { color: var(--muted); font-size: 0.85rem; }
+</style>
+</head>
+<body>
+<header>
+  <h1><span>&#9670;</span> Letterboxd Ranker</h1>
+  <div class="header-right">
+    <div id="stats">loading&hellip;</div>
+    <input
+      id="lock-input"
+      type="text"
+      list="movie-datalist"
+      placeholder="&#128274; Lock a movie&hellip;"
+      autocomplete="off"
+    />
+    <select id="lock-rating-select">
+      <option value="">&#128274;&#9733; Lock a rating&hellip;</option>
+      <option value="5">&#9733;&#9733;&#9733;&#9733;&#9733; (5)</option>
+      <option value="4.5">&#9733;&#9733;&#9733;&#9733;&frac12; (4.5)</option>
+      <option value="4">&#9733;&#9733;&#9733;&#9733; (4)</option>
+      <option value="3.5">&#9733;&#9733;&#9733;&frac12; (3.5)</option>
+      <option value="3">&#9733;&#9733;&#9733; (3)</option>
+      <option value="2.5">&#9733;&#9733;&frac12; (2.5)</option>
+      <option value="2">&#9733;&#9733; (2)</option>
+      <option value="1.5">&#9733;&frac12; (1.5)</option>
+      <option value="1">&#9733; (1)</option>
+      <option value="0.5">&frac12; (0.5)</option>
+    </select>
+    <div id="lock-active" hidden>
+      &#128274; <span id="lock-title"></span>
+      <button id="unlock-btn" class="btn" type="button">Unlock</button>
+    </div>
+    <button id="seed-btn" class="btn" type="button">Seed from ratings</button>
+    <button id="refit-btn" class="btn primary" type="button">Refit now</button>
+  </div>
+</header>
+<main>
+  <div id="banner"></div>
+
+  <section id="setup">
+    <h3>
+      Data &amp; setup <button id="setup-toggle" type="button">hide</button>
+      <span id="setup-note">Everything is stored only in this browser &mdash; nothing is ever uploaded anywhere (except optional poster lookups to TMDB).</span>
+    </h3>
+    <div id="setup-body">
+      <div class="setup-group">
+        <h4>1. Sync your Letterboxd export</h4>
+        <p>Export from <a href="https://letterboxd.com/settings/data/" target="_blank" rel="noopener">Letterboxd &rarr; Settings &rarr; Data</a>, unzip it, and pick <code>diary.csv</code> and/or <code>ratings.csv</code> below. Re-sync any time to add new movies or update ratings/watched dates &mdash; it upserts by title+year, so it's safe to run repeatedly.</p>
+        <input id="diary-file" type="file" accept=".csv" />
+        <input id="ratings-file" type="file" accept=".csv" />
+        <button id="sync-btn" class="btn primary" type="button">Sync</button>
+      </div>
+      <div class="setup-group">
+        <h4>2. Move to another device, or just back up</h4>
+        <p>This browser is the only copy of your data. Export a backup file, then import it on another device (or after clearing browser data) to pick up exactly where you left off.</p>
+        <button id="export-backup-btn" class="btn" type="button">Export backup (.json)</button>
+        <label class="file-btn">Import backup (.json)<input id="import-backup-input" type="file" accept=".json" hidden /></label>
+      </div>
+      <div class="setup-group">
+        <h4>Migrating comparisons from the local server app?</h4>
+        <p>Generate a comparisons export there (see the README's "Migrating to the static version" section), sync your CSV above first, then import it here. Safe to run more than once -- it only fills in pairs that don't already have a comparison recorded.</p>
+        <label class="file-btn">Import comparisons (.json)<input id="import-migration-input" type="file" accept=".json" hidden /></label>
+      </div>
+      <div class="setup-group">
+        <h4>Posters (optional)</h4>
+        <p>Paste your own free <a href="https://www.themoviedb.org/settings/api" target="_blank" rel="noopener">TMDB API key</a> to show posters instead of plain title cards. Stored only in this browser, sent only to TMDB, never anywhere else.</p>
+        <input id="tmdb-key-input" type="text" placeholder="TMDB API key" autocomplete="off" />
+        <button id="tmdb-key-save-btn" class="btn" type="button">Save</button>
+      </div>
+      <div id="setup-result"></div>
+    </div>
+  </section>
+
+  <div id="empty-state">No movies yet &mdash; sync your Letterboxd export above to get started.</div>
+  <div id="loading" style="display:none">Loading next pair&hellip;</div>
+  <div id="vs-row" style="display:none">
+    <div class="card" id="card-a">
+      <div class="placeholder" id="ph-a"></div>
+      <h2 id="title-a"></h2>
+      <div class="year" id="year-a"></div>
+      <div class="rating" id="rating-a"></div>
+      <div class="key-hint">&larr; left arrow</div>
+    </div>
+    <div id="vs-center">
+      <div>vs</div>
+      <button id="skip-btn">Can&rsquo;t decide (space)</button>
+    </div>
+    <div class="card" id="card-b">
+      <div class="placeholder" id="ph-b"></div>
+      <h2 id="title-b"></h2>
+      <div class="year" id="year-b"></div>
+      <div class="rating" id="rating-b"></div>
+      <div class="key-hint">right arrow &rarr;</div>
+    </div>
+  </div>
+
+  <section id="ranking">
+    <h3>Current top 20</h3>
+    <ol id="top20"></ol>
+    <button id="export-ranking-btn" type="button">&#8595; Export full ranking as CSV</button>
+  </section>
+
+  <section id="history">
+    <h3>
+      Comparison history <button id="history-toggle" type="button">show</button>
+      <span id="history-count"></span>
+    </h3>
+    <div id="history-body" hidden>
+      <div class="history-controls">
+        <input
+          id="history-filter-input"
+          type="text"
+          list="movie-datalist"
+          placeholder="Filter by movie&hellip; (e.g., after a rewatch)"
+          autocomplete="off"
+        />
+        <button id="history-filter-clear" type="button">Clear</button>
+        <select id="history-source-filter">
+          <option value="">All sources</option>
+          <option value="user">My comparisons only</option>
+          <option value="rating">From ratings only</option>
+        </select>
+      </div>
+      <datalist id="movie-datalist"></datalist>
+      <ol id="history-list"></ol>
+      <div id="history-empty" hidden>No comparisons found.</div>
+      <button id="history-load-more" type="button">Load more</button>
+    </div>
+  </section>
+</main>
+
+<script type="module" src="app.js"></script>
+</body>
+</html>

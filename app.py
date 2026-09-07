@@ -1,13 +1,15 @@
 """FastAPI server: /, /status, /next_pair, /compare, /comparisons, /movies,
-/sync, /refit, /seed_rating_comparisons, /export."""
+/sync, /refit, /seed_rating_comparisons, /export, /export_comparisons."""
 
 from __future__ import annotations
 
 import csv
 import io
+import json
 import sqlite3
 import time
 from contextlib import asynccontextmanager
+from datetime import datetime, timezone
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException, Query
@@ -485,6 +487,46 @@ def export() -> Response:
             content=buf.getvalue(),
             media_type="text/csv",
             headers={"Content-Disposition": "attachment; filename=ranking.csv"},
+        )
+    finally:
+        conn.close()
+
+
+@app.get("/export_comparisons")
+def export_comparisons() -> Response:
+    """Your real comparisons (not rating-derived -- those regenerate
+    instantly via "Seed from ratings" in the new app) as JSON, keyed by
+    title/year rather than internal ids, which aren't portable between
+    this app and the static one. One-time migration into the static
+    version -- see the README's "Migrating to the static version"."""
+    conn = get_conn()
+    try:
+        movies_by_id = {m.id: m for m in model.get_movies(conn)}
+        rows = []
+        for c in model.all_comparisons(conn, source=model.ComparisonSource.USER):
+            movie_a = movies_by_id.get(c.movie_a_id)
+            movie_b = movies_by_id.get(c.movie_b_id)
+            if movie_a is None or movie_b is None:
+                continue  # Orphaned row (shouldn't happen); skip rather than fail the export.
+            winner = "a" if c.winner_id == movie_a.id else "b" if c.winner_id == movie_b.id else None
+            rows.append(
+                {
+                    "movieA": {"title": movie_a.title, "year": movie_a.year},
+                    "movieB": {"title": movie_b.title, "year": movie_b.year},
+                    "winner": winner,
+                    "timestamp": c.timestamp,
+                }
+            )
+
+        payload = {
+            "format": "letterboxd-ranker-comparisons-v1",
+            "exportedAt": datetime.now(timezone.utc).isoformat(),
+            "comparisons": rows,
+        }
+        return Response(
+            content=json.dumps(payload),
+            media_type="application/json",
+            headers={"Content-Disposition": "attachment; filename=comparisons.json"},
         )
     finally:
         conn.close()
