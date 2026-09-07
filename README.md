@@ -1,5 +1,7 @@
 # Letterboxd Ranker
 
+Compare your movies here: [airalcorn2.github.io/movie-ranker/](https://airalcorn2.github.io/movie-ranker/).
+
 ![User Interface](ui.png)
 
 Rank your Letterboxd diary/ratings export via pairwise comparisons + a [Bradley-Terry model](https://en.wikipedia.org/wiki/Bradley%E2%80%93Terry_model) (fit with [`choix`](https://github.com/lucasmaystre/choix)), with active learning picking which pairs to ask about so you don't have to compare every possible movie combination.
