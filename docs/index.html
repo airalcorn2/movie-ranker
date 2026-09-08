@@ -257,6 +257,16 @@
     margin-bottom: 1.5rem;
     font-size: 0.85rem;
   }
+  #tips {
+    background: #16241c;
+    border: 1px solid var(--accent2);
+    color: var(--text);
+    padding: 0.75rem 1rem;
+    border-radius: 8px;
+    margin-bottom: 1.5rem;
+    font-size: 0.85rem;
+  }
+  #tips div + div { margin-top: 0.4rem; }
   section#history { margin-top: 3rem; }
   section#history h3 {
     font-size: 0.95rem;
@@ -400,12 +410,13 @@
       &#128274; <span id="lock-title"></span>
       <button id="unlock-btn" class="btn" type="button">Unlock</button>
     </div>
-    <button id="seed-btn" class="btn" type="button">Seed from ratings</button>
-    <button id="refit-btn" class="btn primary" type="button">Refit now</button>
+    <button id="seed-btn" class="btn" type="button" title="Add a permanent comparison for every pair of differently-rated movies, so cross-tier order (5★ vs 4★, etc.) is locked in without spending your own clicks on it">Seed from ratings</button>
+    <button id="refit-btn" class="btn primary" type="button" title="Fit the ranking to everything compared so far -- nothing below updates until you click this">Refit now</button>
   </div>
 </header>
 <main>
   <div id="banner"></div>
+  <div id="tips" hidden></div>
 
   <section id="setup">
     <h3>

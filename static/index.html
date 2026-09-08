@@ -218,6 +218,16 @@
     margin-bottom: 1.5rem;
     font-size: 0.85rem;
   }
+  #tips {
+    background: #16241c;
+    border: 1px solid var(--accent2);
+    color: var(--text);
+    padding: 0.75rem 1rem;
+    border-radius: 8px;
+    margin-bottom: 1.5rem;
+    font-size: 0.85rem;
+  }
+  #tips div + div { margin-top: 0.4rem; }
   section#history { margin-top: 3rem; }
   section#history h3 {
     font-size: 0.95rem;
@@ -362,12 +372,13 @@
       <button id="unlock-btn" type="button">Unlock</button>
     </div>
     <button id="sync-btn" type="button" title="Re-read data/diary.csv and data/ratings.csv">Sync from data/</button>
-    <button id="seed-btn" type="button">Seed from ratings</button>
-    <button id="refit-btn" type="button">Refit now</button>
+    <button id="seed-btn" type="button" title="Add a permanent comparison for every pair of differently-rated movies, so cross-tier order (5★ vs 4★, etc.) is locked in without spending your own clicks on it">Seed from ratings</button>
+    <button id="refit-btn" type="button" title="Fit the ranking to everything compared so far -- nothing updates until you click this">Refit now</button>
   </div>
 </header>
 <main>
   <div id="banner"></div>
+  <div id="tips" hidden></div>
   <div id="loading">Loading next pair&hellip;</div>
   <div id="vs-row" style="display:none">
     <div class="card" id="card-a">
@@ -526,9 +537,30 @@ async function loadStatus() {
       li.innerHTML = `<span><span class="n">${i + 1}.</span>${m.title}${m.year ? ` (${m.year})` : ""}</span><span class="sc">${m.score}</span>`;
       list.appendChild(li);
     });
+
+    updateTips(s);
   } catch (e) {
     // Status is a nice-to-have; ignore failures here.
   }
+}
+
+/** Nudge toward "Seed from ratings" / "Refit now" when the ranking is
+ * currently missing one of them -- otherwise it's easy to not notice, make
+ * a bunch of comparisons, and only realize much later that the scores
+ * never reflected a real fit or never got cross-tier order locked in. */
+function updateTips(s) {
+  const tips = [];
+  if (s.n_rating_derived === 0) {
+    tips.push(
+      '💡 You haven\'t clicked "Seed from ratings" yet -- until you do, cross-tier order (5★ vs 4★, etc.) isn\'t locked in, so the ranking can look scrambled between tiers.'
+    );
+  }
+  if ((s.n_comparisons_decisive > 0 || s.n_rating_derived > 0) && s.last_fit_timestamp == null) {
+    tips.push('💡 You haven\'t clicked "Refit now" yet -- the scores below are just star-rating placeholders, not a real fit.');
+  }
+  const el = document.getElementById("tips");
+  el.innerHTML = tips.map((t) => `<div>${t}</div>`).join("");
+  el.hidden = tips.length === 0;
 }
 
 /** Explicitly fit the model (fitting is manual-only; see POST /refit). */

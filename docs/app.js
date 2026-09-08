@@ -167,6 +167,29 @@ function loadStatus() {
     li.innerHTML = `<span><span class="n">${i + 1}.</span>${m.title}${m.year ? ` (${m.year})` : ""}</span><span class="sc">${score}</span>`;
     list.appendChild(li);
   });
+
+  updateTips(run, nRatingDerived);
+}
+
+/** Nudge toward "Seed from ratings" / "Refit now" when the ranking is
+ * currently missing one of them -- otherwise it's easy to not notice, make
+ * a bunch of comparisons, and only realize much later that the scores
+ * never reflected a real fit or never got cross-tier order locked in. */
+function updateTips(run, nRatingDerived) {
+  const tips = [];
+  const hasRatedMovies = state.movies.some((m) => m.rating != null);
+  if (hasRatedMovies && nRatingDerived === 0) {
+    tips.push(
+      '💡 You haven\'t clicked "Seed from ratings" yet -- until you do, cross-tier order (5★ vs 4★, etc.) isn\'t locked in, so the ranking can look scrambled between tiers.'
+    );
+  }
+  const anyDecisive = state.comparisons.some((c) => c.winnerId != null);
+  if (anyDecisive && run === null) {
+    tips.push('💡 You haven\'t clicked "Refit now" yet -- the scores below are just star-rating placeholders, not a real fit.');
+  }
+  const el = $("tips");
+  el.innerHTML = tips.map((t) => `<div>${t}</div>`).join("");
+  el.hidden = tips.length === 0;
 }
 
 /** O(n^2) Kendall's tau between two score maps over their shared movies --
